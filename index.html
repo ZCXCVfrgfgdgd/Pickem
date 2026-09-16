@@ -1,9 +1,12 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MAP VETO // CS2</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   :root{
     --bg:#07090d;
@@ -370,8 +373,9 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
 <script>
-// Local image files placed next to this index.html
+document.addEventListener('DOMContentLoaded', function(){
 const MAP_IMAGES = {
   dust2:   'Без названия 165_20260916120654.png',
   mirage:  'Без названия165_20260916120421.png',
@@ -505,4 +509,236 @@ function renderMapsGrid(){
     div.className = 'map-card';
     if(st !== 'available') div.classList.add('disabled');
     if(st === 'banned') div.classList.add('stamp-ban');
-    if(st === 'pick1' || st === 'pick2'
+    if(st === 'pick1' || st === 'pick2') div.classList.add(st==='pick1'?'stamp-pick1':'stamp-pick2');
+    if(st === 'decider') div.classList.add('stamp-decider');
+
+    div.appendChild(buildMapMedia(m.id, false));
+    const scrim = document.createElement('div'); scrim.className='map-scrim'; div.appendChild(scrim);
+    const nm = document.createElement('div'); nm.className='map-name'; nm.textContent = m.name; div.appendChild(nm);
+
+    if(st==='banned'){ const s=document.createElement('div'); s.className='stamp'; s.textContent='BAN'; div.appendChild(s); }
+    if(st==='pick1'||st==='pick2'){ const s=document.createElement('div'); s.className='stamp'; s.textContent='PICK'; div.appendChild(s); }
+    if(st==='decider'){ const s=document.createElement('div'); s.className='stamp'; s.textContent='DECIDER'; div.appendChild(s); }
+
+    if(st==='available'){
+      div.addEventListener('click', ()=> handleMapClick(m.id));
+    }
+    grid.appendChild(div);
+  });
+}
+
+function updateTurnBanner(){
+  const banner = document.getElementById('turnBanner');
+  if(stepIndex >= steps.length){
+    banner.innerHTML = 'Все действия завершены';
+    return;
+  }
+  const step = steps[stepIndex];
+  const tNum = teamNumFor(step.team);
+  const label = step.type==='ban' ? 'банит карту' : 'выбирает карту';
+  const tagCls = step.type==='ban' ? 'ban' : 'pick';
+  banner.innerHTML = '<b>'+teams[tNum].name+'</b> '+label+' <span class="tag '+tagCls+'">'+step.type+'</span>';
+}
+
+function handleMapClick(mapId){
+  if(stepIndex >= steps.length) return;
+  const step = steps[stepIndex];
+  const tNum = teamNumFor(step.team);
+  if(step.type === 'ban'){
+    mapState[mapId] = 'banned';
+    log.push({type:'ban', mapId:mapId, teamNum:tNum});
+    renderMapsGrid();
+    renderLog();
+    advanceStep();
+  } else if(step.type === 'pick'){
+    const sideTeamNum = teamNumFor(step.sideBy);
+    openSideModal(sideTeamNum, mapId, tNum);
+  }
+}
+
+function openSideModal(sideTeamNum, mapId, pickTeamNum){
+  const modal = document.getElementById('sideModal');
+  document.getElementById('sideModalTitle').textContent =
+    teams[sideTeamNum].name + ' выбирает сторону на ' + (MAPS.find(m=>m.id===mapId).name);
+  modal.style.display = 'flex';
+  const choices = modal.querySelectorAll('.side-choice');
+  choices.forEach(ch=>{
+    ch.onclick = ()=>{
+      const side = ch.getAttribute('data-side');
+      modal.style.display = 'none';
+      const pickNumber = log.filter(l=>l.type==='pick').length + 1;
+      mapState[mapId] = pickNumber===1 ? 'pick1' : 'pick2';
+      log.push({type:'pick', mapId:mapId, teamNum:pickTeamNum, side:side, sideTeamNum:sideTeamNum});
+      renderMapsGrid();
+      renderLog();
+      advanceStep();
+    };
+  });
+}
+
+function advanceStep(){
+  stepIndex++;
+  if(stepIndex >= steps.length){
+    finalizeDecider();
+    updateTurnBanner();
+    document.getElementById('saveRow').style.display='block';
+  } else {
+    updateTurnBanner();
+  }
+}
+
+function finalizeDecider(){
+  const remaining = MAPS.filter(m=> mapState[m.id]==='available');
+  if(remaining.length === 1){
+    const m = remaining[0];
+    mapState[m.id] = 'decider';
+    const side = Math.random() < 0.5 ? 'CT' : 'T';
+    const sideTeamNum = Math.random() < 0.5 ? 1 : 2;
+    log.push({type:'decider', mapId:m.id, side:side, sideTeamNum:sideTeamNum});
+    renderMapsGrid();
+    renderLog();
+  }
+}
+
+function sidePillEl(side, sideTeamNum){
+  const pill = document.createElement('span');
+  pill.className = 'side-pill ' + (side==='CT'?'ct':'t');
+  const img = document.createElement('img');
+  img.src = SIDE_IMAGES[side];
+  pill.appendChild(img);
+  const txt = document.createElement('span');
+  txt.textContent = teams[sideTeamNum].name + ' — ' + side;
+  pill.appendChild(txt);
+  return pill;
+}
+
+function renderLog(){
+  const wrap = document.getElementById('vetoLog');
+  wrap.innerHTML = '';
+  log.forEach(entry=>{
+    const m = MAPS.find(x=>x.id===entry.mapId);
+    const row = document.createElement('div');
+    row.className = 'log-row';
+
+    const badge = document.createElement('div');
+    badge.className = 'badge ' + entry.type;
+    badge.textContent = entry.type==='ban'?'BAN':entry.type==='pick'?'PICK':'DECIDER';
+    row.appendChild(badge);
+
+    row.appendChild(buildMapMedia(entry.mapId, true));
+
+    const nm = document.createElement('div'); nm.className='mname'; nm.textContent = m.name; row.appendChild(nm);
+
+    const who = document.createElement('div'); who.className='who';
+    who.textContent = entry.type==='decider' ? 'Оставшаяся карта' : teams[entry.teamNum].name;
+    row.appendChild(who);
+
+    if(entry.side){ row.appendChild(sidePillEl(entry.side, entry.sideTeamNum)); }
+    wrap.appendChild(row);
+  });
+}
+
+// ---------- save pick / result ----------
+document.getElementById('savePickBtn').addEventListener('click', ()=>{
+  document.getElementById('vetoStage').style.display='none';
+  document.getElementById('resultStage').style.display='block';
+  renderSummary();
+});
+
+function teamAvatarEl(teamNum){
+  const t = teams[teamNum];
+  if(t.icon){
+    const img = document.createElement('img');
+    img.className='avatar';
+    img.src = t.icon;
+    return img;
+  }
+  const div = document.createElement('div');
+  div.className='noicon';
+  div.textContent = t.name.substring(0,2).toUpperCase();
+  return div;
+}
+
+function renderSummary(){
+  const head = document.getElementById('summaryHead');
+  head.innerHTML = '';
+  const st1 = document.createElement('div'); st1.className='summary-team';
+  st1.appendChild(teamAvatarEl(1));
+  const n1 = document.createElement('div'); n1.className='sname'; n1.textContent=teams[1].name; st1.appendChild(n1);
+  const vs = document.createElement('div'); vs.className='summary-vs'; vs.textContent='VS';
+  const st2 = document.createElement('div'); st2.className='summary-team';
+  st2.appendChild(teamAvatarEl(2));
+  const n2 = document.createElement('div'); n2.className='sname'; n2.textContent=teams[2].name; st2.appendChild(n2);
+  head.appendChild(st1); head.appendChild(vs); head.appendChild(st2);
+
+  // Visual strip: one tile per map in veto order
+  const strip = document.getElementById('resultStrip');
+  strip.innerHTML = '';
+  log.forEach(entry=>{
+    const m = MAPS.find(x=>x.id===entry.mapId);
+    const tile = document.createElement('div');
+    tile.className = 'result-tile' + (entry.type==='ban' ? ' dim' : '');
+    tile.appendChild(buildMapMedia(entry.mapId, false));
+
+    const tag = document.createElement('div');
+    tag.className = 'rtag ' + entry.type;
+    tag.textContent = entry.type==='ban' ? 'BAN' : entry.type==='pick' ? 'PICK' : 'DECIDER';
+    tile.appendChild(tag);
+
+    const nm = document.createElement('div'); nm.className='rname'; nm.textContent = m.name;
+    tile.appendChild(nm);
+
+    if(entry.side){
+      const sd = document.createElement('div'); sd.className='rside';
+      const img = document.createElement('img'); img.src = SIDE_IMAGES[entry.side];
+      const txt = document.createElement('span'); txt.textContent = teams[entry.sideTeamNum].name;
+      sd.appendChild(img); sd.appendChild(txt);
+      tile.appendChild(sd);
+    }
+    strip.appendChild(tile);
+  });
+
+  // Text log underneath
+  const logWrap = document.getElementById('summaryLog');
+  logWrap.innerHTML = '';
+  log.forEach(entry=>{
+    const m = MAPS.find(x=>x.id===entry.mapId);
+    const row = document.createElement('div');
+    row.className = 'log-row';
+    const badge = document.createElement('div');
+    badge.className = 'badge ' + entry.type;
+    badge.textContent = entry.type==='ban'?'BAN':entry.type==='pick'?'PICK':'DECIDER';
+    row.appendChild(badge);
+    row.appendChild(buildMapMedia(entry.mapId, true));
+    const nm = document.createElement('div'); nm.className='mname'; nm.textContent = m.name; row.appendChild(nm);
+    const who = document.createElement('div'); who.className='who';
+    who.textContent = entry.type==='decider' ? 'Decider' : teams[entry.teamNum].name;
+    row.appendChild(who);
+    if(entry.side){ row.appendChild(sidePillEl(entry.side, entry.sideTeamNum)); }
+    logWrap.appendChild(row);
+  });
+}
+
+document.getElementById('saveImgBtn').addEventListener('click', ()=>{
+  if(typeof html2canvas === 'undefined'){
+    alert('Модуль сохранения картинки ещё грузится (нужен интернет для первой загрузки). Подожди пару секунд и нажми ещё раз.');
+    return;
+  }
+  const target = document.getElementById('summaryCard');
+  html2canvas(target, {backgroundColor:'#08090d', scale:2, useCORS:true}).then(canvas=>{
+    const link = document.createElement('a');
+    link.download = 'map-veto-result.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+});
+
+document.getElementById('resetBtn').addEventListener('click', ()=>{
+  location.reload();
+});
+
+}); // end DOMContentLoaded
+
+</script>
+</body>
+</html>
